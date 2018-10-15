@@ -4,8 +4,9 @@ import './App.css';
 import React from "react";
 //import ReactDOM from "react-dom";
 import * as rxjs from 'rxjs';
-import { operators as rxop } from 'rxjs';
+import {map} from 'rxjs/operators';
 import data from './data';
+//import * as most from 'most';
 //import * as d3 from "d3";
 
 //import "./styles.css";
@@ -35,9 +36,9 @@ for (var a of data) {
         key: idx++,
         label: ""
     })
-    if (idx > 15) {
-        break;
-    }
+    //if (idx > 15) {
+    //    break;
+    //}
 }
 
 function now() {
@@ -50,8 +51,51 @@ class Component extends React.Component {
         super(props);
         var orig_render = this.render.bind(this);
         this.render = () => orig_render(this.props, this.state);
+
+        var orig_componentWillUnmount = (
+            this.componentWillUnmount 
+                ? this.componentWillUnmount.bind(this)
+                : (() => {})
+        );
+
+        this.teardown = [];
+        this.componentWillUnmount = () => {
+            orig_componentWillUnmount()
+            for (var teardown of this.teardown) {
+                teardown();
+            }
+        };
+    }
+    sub(thing, func) {
+        var s = thing.subscribe(func);
+        this.teardown.push(() => s.unsubscribe);
     }
 }
+
+//function* allTheIntegers(interval) {
+//	var i = 0;
+//	while(true) {
+//		yield delayPromise(interval, i++)
+//	}
+//}
+//
+//const delayPromise = (ms, value) =>
+//	new Promise(resolve => setTimeout(() => resolve(value), ms));
+//
+//async function derp() {
+//	for await (var derp of allTheIntegers(1000)) {
+//        if (derp > 100) {
+//            return;
+//        }
+//        console.log(derp);
+//	}
+//}
+//derp()
+
+//most.generate(allTheIntegers, 1000)
+//	.take(100)
+//	.observe(x => console.log(x));
+//
 const sortby = (array, f) => {
     array.sort((a, b) => {
         var as = f(a);
@@ -81,7 +125,9 @@ const sortby = (array, f) => {
 //subject.next(3);
  
 var mousecoords = new rxjs.BehaviorSubject({ clientX: -1, clientY: -1 });
-rxjs.fromEvent(document, 'mousemove', true).subscribe(mousecoords);
+rxjs.fromEvent(document, 'mousemove', true).pipe(
+    map(({clientX, clientY}) => ({clientX: clientX + 0, clientY: clientY + 0}))
+).subscribe(mousecoords);
 //document.addEventListener('mousemove', (e) => {
 //    mousecoords = {
 //        x: e.clientX,
@@ -132,7 +178,7 @@ document.addEventListener('mouseup', (evt) => {
 //            return;
 //        }
 //        if (this.container_ref.current) {
-//            var bounds = this.container_ref.current.getBoundingClientRect();
+//            var bounds = ;
 //            if (mousecoords.x >= bounds.left
 //                && mousecoords.x <= bounds.right
 //                && mousecoords.y >= bounds.top
@@ -229,50 +275,53 @@ class Timeline extends Component {
         this.state = {
             offset: 0,
             scale: 1,
-            hovered: false,
-            clicked: false,
         }
-        this.debounced_update = debounce(this.update.bind(this), 100);
         this.container_ref = React.createRef();
-    }
-    set_hovered(hovered) {
-        if (this.state.hovered === hovered) {
-            return;
-        }
-        this.setState({ hovered });
-    }
-    update() {
-        if (!this.state.hovered) {
-            return;
-        }
-        if (this.container_ref.current) {
-            var bounds = this.container_ref.current.getBoundingClientRect();
-            if (mousecoords.x >= bounds.left
-                && mousecoords.x <= bounds.right
-                && mousecoords.y >= bounds.top
-                && mousecoords.y <= bounds.bottom) {
-                // contained, keep polling
-            } else {
-                this.set_hovered(false);
-                return;
+        this.click = new rxjs.BehaviorSubject();
+        this.sub(
+            rxjs.combineLatest(mousedown[0], mousecoords, this.click),
+            ([down, movement, click]) => {
+                if (!down || !click) {
+                    if (click) { this.click.next(undefined); }
+                    return;
+                }
+                var scale = click.screen.right - click.screen.left;
+                var scaled_orig = (click.event.clientX - click.screen.left) / scale;
+                var q = movement.clientX;
+                var p = click.screen.left
+                var scaled_now = (q - p) /scale;
+                var delta = scaled_now-scaled_orig;
+                this.setState({offset: click.offset + delta});
+                //console.log(down, movement, click, {scale, scaled_orig, scaled_now, delta, q, p});
             }
-
-        }
-        this.debounced_update();
+        );
     }
-    componentDidUpdate() {
-        if (this.state.hovered) {
-            this.debounced_update();
-        }
-    }
+    //set_hovered(hovered) {
+    //    if (this.state.hovered === hovered) {
+    //        return;
+    //    }
+    //    this.setState({ hovered });
+    //}
+    //componentDidUpdate() {
+    //    if (this.state.hovered) {
+    //        this.debounced_update();
+    //    }
+    //}
     componentDidMount() {
         // D3 Code to create the chart
         //d3.select(this.elem.current)
         //    .style("background-color", "red");
     }
-
-    componentDidUpdate() {
-        // D3 Code to update the chart
+    doclick(event) {
+        var rect = this.container_ref.current.getBoundingClientRect();
+        this.click.next({
+            offset: this.state.offset,
+            scale: this.state.scale,
+            screen: {left: rect.left, right: rect.right},
+            event: {clientX: event.clientX, clientY: event.clientY}
+        });
+        event.preventDefault();
+        return false;
     }
 
     componentWillUnmount() {
@@ -289,7 +338,7 @@ class Timeline extends Component {
         for (var e of visible) {
             by_key[e.key] = e;
             changes.push({ e, present: true, time: e.start });
-            changes.push({ e, present: false, time: e.end });
+            changes.push({ e, present: false, time: Math.max(e.start+1, e.end-60) });
         }
         sortby(changes, x => [x.time, x.present ? 0 : 1]);
         var windows = [];
@@ -316,26 +365,36 @@ class Timeline extends Component {
                 state.delete(change.e.key);
             }
         }
-        console.log(windows);
+        var heightinfo = {};
+        for (var win of windows) {
+            var items = Array.from(win.items);
+            sortby(items, x => by_key[x].start);
+            var idx = 0;
+            for (var entry of items) {
+                heightinfo[entry] = {item: idx++, count: items.length};
+            }
+        }
+        //console.log(windows);
 
         assert(!state.size);
-        //visible = windows;
         /*return <div>{changes.reduce((x=3, update) => {
             return x;
         }, undefined)}</div>;*/
         for (var i=0; i < visible.length; i++) {
             var e = visible[i];
             var key = e.key;
-            var s_s = 100 * (e.start - start)/scale;
-            var s_e = 100 * ((e.end - start) / scale);
+            var hinfo = heightinfo[key] || {item: 0, count: 1};
+            var top = hinfo.item * 100 / hinfo.count;
+            var height = 100 / hinfo.count;
+            var s_s = 100 * (this.state.offset + (e.start - start)/scale);
+            var s_e = 100 * (this.state.offset + ((e.end - start) / scale));
             var s_w = s_e - s_s;
             rendered.push(<div style={{
-                height: '100%',
-                //top: i + 'px',
-                bottom: '0px',
-                left: '' + s_s.toFixed(0) + '%',
+                height: '' + height.toFixed(3) + '%',
+                top: '' + top.toFixed(3) + '%',
+                left: '' + s_s.toFixed(3) + '%',
                 //right: '' + s_e.toFixed(0) + '%',
-                width: '' + s_w.toFixed(0) + "%",
+                width: '' + s_w.toFixed(3) + "%",
                 position: 'absolute',
                 backgroundColor: '#00000099',
                 overflow: 'hidden',
@@ -347,23 +406,31 @@ class Timeline extends Component {
                 {children(e)}
             </div>);
         }
-        return <div className="timeline" style={{
-            position: 'relative',
-            backgroundColor: '#fff6f0',
-            overflow:'hidden',
+        return (
+            <div
+                className="timeline"
+                onMouseDown={e => this.doclick(e)}
+                draggable={false}
+                ref={this.container_ref}
+                style={{
+                    position: 'relative',
+                    backgroundColor: '#fff6f0',
+                    overflow:'hidden',
 
-            width: '700px',
-            height: '100px'
-        }} {...props}>
-            {rendered}
-        </div>
+                    width: '700px',
+                    height: '100px'
+                }} {...props}
+            >
+                {rendered}
+            </div>
+        );
     }
 };
 
 function App() {
     return (
         <div className="App">
-            <Timeline start={now()} end={now() + day} data={d_data}>
+            <Timeline start={now()} end={now() + week} data={d_data}>
                 {element => (<div>
                     {element.label}
                 </div>)}
