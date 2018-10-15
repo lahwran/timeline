@@ -330,6 +330,9 @@ class Timeline extends Component {
     }
     render({data=[], start, end, children=(()=>{}), ...props}) {
         //return <div className="timeline" ref={this.elem}/>
+        var scale = end - start;
+        end -= this.state.offset * scale;
+        start -= this.state.offset * scale;
         var visible = data.filter(x => x.end > start && x.start < end);
         var rendered = [];
         var scale = end - start;
@@ -343,6 +346,7 @@ class Timeline extends Component {
         sortby(changes, x => [x.time, x.present ? 0 : 1]);
         var windows = [];
         var state = new Set();
+        var states = {};
         var widx = 0;
         var lt = 0;
         for (var change of changes) {
@@ -386,11 +390,11 @@ class Timeline extends Component {
             var hinfo = heightinfo[key] || {item: 0, count: 1};
             var top = hinfo.item * 100 / hinfo.count;
             var height = 100 / hinfo.count;
-            var s_s = 100 * (this.state.offset + (e.start - start)/scale);
-            var s_e = 100 * (this.state.offset + ((e.end - start) / scale));
+            var s_s = 100 * (e.start - start)/scale;
+            var s_e = 100 * ((e.end - start) / scale);
             var s_w = s_e - s_s;
             rendered.push(<div style={{
-                height: '' + height.toFixed(3) + '%',
+                height: '' + height.toFixed(4) + '%',
                 top: '' + top.toFixed(3) + '%',
                 left: '' + s_s.toFixed(3) + '%',
                 //right: '' + s_e.toFixed(0) + '%',
