@@ -274,7 +274,7 @@ class Timeline extends Component {
         this.elem = React.createRef();
         this.state = {
             offset: 0,
-            scale: 1,
+            scale: 4,
         }
         this.container_ref = React.createRef();
         this.click = new rxjs.BehaviorSubject();
@@ -285,7 +285,7 @@ class Timeline extends Component {
                     if (click) { this.click.next(undefined); }
                     return;
                 }
-                var scale = click.screen.right - click.screen.left;
+                var scale = (click.screen.right - click.screen.left) * this.state.scale;
                 var scaled_orig = (click.event.clientX - click.screen.left) / scale;
                 var q = movement.clientX;
                 var p = click.screen.left
@@ -323,7 +323,33 @@ class Timeline extends Component {
         event.preventDefault();
         return false;
     }
+    dowheel(event) {
+        if (this.click.value) {
+            return;
+        }
+        var rect = this.container_ref.current.getBoundingClientRect();
+        //this.wheel.next({
+        //    offset: this.state.offset,
+        //    scale: this.state.scale,
+        //    screen: {left: rect.left, right: rect.right},
+        //    event: {deltaX: event.deltaX, deltaY: event.deltaY}
+        //});
+        var scale = (rect.right - rect.left) * this.state.scale;
+        var scenter = (rect.right + rect.left) / 2;
+        var curscale = this.state.scale;
+        var newscale = Math.max(Math.min(200, curscale * Math.exp(event.deltaY * 0.01)), 0.01);
+        var sdelta = newscale / curscale;
+        var orig_delta = (event.clientX - scenter) * curscale;
+        var new_delta = sdelta * orig_delta;
+        var meta_delta = orig_delta - new_delta;
+        this.setState({
+            offset: this.state.offset - (meta_delta + event.deltaX / scale),
+            scale: newscale
+        });
+        event.preventDefault();
+        return false;
 
+    }
     componentWillUnmount() {
         // d3 code to destroy the chart
         this.dying = true;
@@ -331,9 +357,13 @@ class Timeline extends Component {
     render({data=[], start, end, children=(()=>{}), ...props}) {
         //return <div className="timeline" ref={this.elem}/>
         var scale = end - start;
-        end -= this.state.offset * scale;
-        start -= this.state.offset * scale;
-        var visible = data.filter(x => x.end > start && x.start < end);
+        var center = start + (scale/2);
+        center -= this.state.offset * scale;
+        scale /= this.state.scale;
+        end = center + scale / 2;;
+        start = center - scale / 2;
+        var slop = 0
+        var visible = data.filter(x => x.end > start - scale*slop && x.start < end + scale*slop);
         var rendered = [];
         var scale = end - start;
         var changes = [];
@@ -388,44 +418,35 @@ class Timeline extends Component {
             var e = visible[i];
             var key = e.key;
             var hinfo = heightinfo[key] || {item: 0, count: 1};
-            var top = hinfo.item * 100 / hinfo.count;
-            var height = 100 / hinfo.count;
+            var count = Math.max(4, hinfo.count);
+            var top = hinfo.item * 100 / count;
+            var height = 100 / count;
             var s_s = 100 * (e.start - start)/scale;
             var s_e = 100 * ((e.end - start) / scale);
             var s_w = s_e - s_s;
-            rendered.push(<div style={{
-                height: '' + height.toFixed(4) + '%',
+            rendered.push(<div className="timeline-element" style={{
                 top: '' + top.toFixed(3) + '%',
                 left: '' + s_s.toFixed(3) + '%',
-                //right: '' + s_e.toFixed(0) + '%',
+                height: '' + height.toFixed(4) + '%',
                 width: '' + s_w.toFixed(3) + "%",
-                position: 'absolute',
-                backgroundColor: '#00000099',
-                overflow: 'hidden',
-                display: 'inline-block',
-                boxSizing: "border-box",
-                //borderLeft: '1px solid blue',
-                //borderRight: '1px solid red',
             }} key={key}>
                 {children(e)}
             </div>);
         }
         return (
-            <div
-                className="timeline"
-                onMouseDown={e => this.doclick(e)}
+            <div className="timeline"
                 draggable={false}
-                ref={this.container_ref}
-                style={{
-                    position: 'relative',
-                    backgroundColor: '#fff6f0',
-                    overflow:'hidden',
+                onMouseDown={e => this.doclick(e)}
+                onWheel={e => this.dowheel(e)}>
+                <div
+                    className="timeline-inner"
+                    ref={this.container_ref}
+                    style={{
 
-                    width: '700px',
-                    height: '100px'
-                }} {...props}
-            >
-                {rendered}
+                    }} {...props}
+                >
+                    {rendered}
+                </div>
             </div>
         );
     }
