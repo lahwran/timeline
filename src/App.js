@@ -34,7 +34,7 @@ for (var a of data) {
         start: a[0],
         end: a[1],
         key: idx++,
-        label: ""
+        label: "" + idx
     })
     //if (idx > 15) {
     //    break;
@@ -267,6 +267,12 @@ function assert(condition, message) {
         throw new Error(message || 'Assertion failed');
     }
 }
+function calcAngleDegrees(x, y) {
+    return Math.atan2(y, x) * 180 / Math.PI;
+}
+function fromDeg(x) {
+    return x * Math.PI / 180 ;
+}
 
 class Timeline extends Component {
     constructor(props) {
@@ -328,22 +334,35 @@ class Timeline extends Component {
             return;
         }
         var rect = this.container_ref.current.getBoundingClientRect();
+        var mag = (event.deltaX ** 2 + event.deltaY ** 2) ** 0.5;
+        var angle = calcAngleDegrees(event.deltaX, event.deltaY);
+        var ratio = (4 / 360);
+        angle = Math.round(angle * ratio)/ratio;
+        var dx = mag * Math.cos(fromDeg(angle));
+        var dy = mag * Math.sin(fromDeg(angle));
+        //console.log({dx: event.deltaX, dy: event.deltaY}, {mag, angle}, {dx, dy}, {ex: event.deltaX-dx, ey: event.deltaY-dy});
+
         //this.wheel.next({
         //    offset: this.state.offset,
         //    scale: this.state.scale,
         //    screen: {left: rect.left, right: rect.right},
         //    event: {deltaX: event.deltaX, deltaY: event.deltaY}
         //});
-        var scale = (rect.right - rect.left) * this.state.scale;
-        var scenter = (rect.right + rect.left) / 2;
+        var screen_to_plot = (rect.right - rect.left) * this.state.scale;
+        var center_screen  = (rect.right + rect.left) / 2;
+        var center_plot    = this.state.offset + 0.5;
+        var event_plot     = (event.clientX - rect.left) / screen_to_plot;
+        var center_event   = center_plot - event_plot;
+
         var curscale = this.state.scale;
-        var newscale = Math.max(Math.min(200, curscale * Math.exp(event.deltaY * 0.01)), 0.01);
+        var newscale = Math.max(Math.min(200, curscale * Math.exp(dy * 0.01)), 0.01);
         var sdelta = newscale / curscale;
-        var orig_delta = (event.clientX - scenter) * curscale;
-        var new_delta = sdelta * orig_delta;
-        var meta_delta = orig_delta - new_delta;
+        var new_center_event = sdelta * center_event;
+        var center_delta = center_event - new_center_event;
+        //console.log(center_plot, event_plot, center_event, new_center_event, sdelta);
+
         this.setState({
-            offset: this.state.offset - (meta_delta + event.deltaX / scale),
+            offset: this.state.offset - (dx / screen_to_plot),
             scale: newscale
         });
         event.preventDefault();
